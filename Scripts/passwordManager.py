@@ -1,21 +1,23 @@
 import secrets, string, hashlib, csv, os, getpass
 import encrypt
 
-__session = {'userLoggedIn' : 0, 'plainUserName': None, 'safeUserName' : None, 'dataFile' : None}
+__session = {'userLoggedIn' : 0, 'plainUserName': None, 'safeUserName' : None, 'dataFile' : None, 'hash': None}
 storageDir = os.path.join(os.path.dirname(__file__), "../.user/")
 userFile = os.path.join(storageDir, "loggedUsers.csv")
 
-def __set_session(userName=None, loggedIn=1):
+def __set_session(userName=None, passHash=None, loggedIn=1):
     if loggedIn == 1 and userName != None:
         __session['plainUserName'] = userName
         __session['safeUserName'] = encrypt.encrypt(userName, userName)
         __session['userLoggedIn'] = 1
         __session['dataFile'] = os.path.join(storageDir, __session['safeUserName']+".csv") 
+        __session['hash'] = passHash
     else:
         __session['plainUserName'] = None
         __session['safeUserName'] = None
         __session['userLoggedIn'] = 0
         __session['dataFile'] = None
+        __session['hash'] = None
 
 def logUserProfile(userName, userPassword):
     __set_session(userName);
@@ -84,7 +86,7 @@ def checkUserProfile(inputName, inputPass):
         passHash = hashlib.blake2b(encodedPass).hexdigest()
         for creds in checkProfiles:
             if creds[0] == safeName and creds[1] == passHash:
-                __set_session(inputName)
+                __set_session(inputName, passHash)
                 return 1
             elif (creds[0] != safeName and creds[1] == passHash) or (creds[0] == safeName and creds[1] != passHash):
                 return 2
@@ -136,9 +138,9 @@ def  savePassword(password, passkeyword):
     except FileNotFoundError:
         pass
     try:
-        encodedPassword = password.encode(encoding='ascii')
-        safekeyword = encrypt.encrypt(passkeyword, __session["safeUserName"])
-        passwordEncrypted = encrypt.encrypt(str(encodedPassword), safekeyword) 
+        encodedPassword = str(password.encode(encoding='ascii'))
+        safekeyword = encrypt.encrypt(passkeyword, __session["hash"])
+        passwordEncrypted = encrypt.encrypt(encodedPassword, __session["hash"]) 
         saver = csv.writer(saveFile, delimiter = ' ',quotechar = '|')
         saver.writerow([__session['safeUserName'], safekeyword, passwordEncrypted])
         saveFile.close()
@@ -151,19 +153,21 @@ def displaySavedPasswords():
     try:
         passwordFile = open(__session['dataFile'], newline = '')
         checkSavedPasswords = csv.reader(passwordFile, delimiter = ' ', quotechar = '|')
-        print(f"Displaying passwords saved for {__session['plainUserName']}")
+        print(f"\nDisplaying passwords saved for {__session['plainUserName']}")
         for row in checkSavedPasswords:
             if row[0] == __session['safeUserName']:
-                decryptedPassword = encrypt.decrypt(row[2], row[1])
-                decryptedKeyword = encrypt.decrypt(row[1], row[0])
+                decryptedPassword = encrypt.decrypt(row[2], __session["hash"])
+                #if pw starts with a b', it will be stored as b'b'.... so this is necessary for clean output
+                decryptedPassword = decryptedPassword[2:-1] if decryptedPassword.startswith("b'") else decryptedPassword
+                decryptedKeyword = encrypt.decrypt(row[1], __session['hash'])
                 print(f'Keyword: {decryptedKeyword}  Password: {decryptedPassword}')
                 x = 1
             else:
                 x = 2
         if x == 2:
-            print(f'No passwords found for {__session["plainUserName"]}.')
+            print(f'\nNo passwords found for {__session["plainUserName"]}.')
     except FileNotFoundError:
-        print(f'No passwords found for {__session["plainUserName"]}.')            
+        print(f'\nNo passwords found for {__session["plainUserName"]}.')            
 
 class Error(Exception):
     pass
@@ -177,6 +181,7 @@ def logout():
     print("Logging out ...")
     __set_session(loggedIn=0)
     print("Successfully logged out!")
+
 def login():
     userName = str(input('Enter your username: '))
     userPasword = getpass.getpass(prompt="Enter your password: ")
@@ -215,7 +220,7 @@ def userHelp():
     commandActions = {'login' : 'Log in to your existing account.', 
                     'create-account/createacc' : 'Create a new account.',
                     'logout' : 'Log out of current profile', 
-                    '--commands/--help' : 'Displays a list of commands.', 
+                    'commands/help' : 'Displays a list of commands.', 
                     'create-password' : 'Create a password. If you are not signed into an account, password wont be saved.',
                     '--exit/--quit' : 'Exit the program'}
     for c,a in commandActions.items():
@@ -236,11 +241,11 @@ def inputStream():
         signUp()
     elif userInput == 'logout':
         logout()
-    elif userInput == '--commands' or userInput == '--help':
+    elif userInput == 'commands' or userInput == 'help':
         userHelp()
     elif userInput == 'create-password':
         unregUserPassword()
-    elif userInput == 'exit' or userInput == 'quit':
+    elif userInput == 'exit' or userInput == 'quit' or userInput=='9':
         exit()
     else:
         print('Invalid command. Enter --help/--commands to get a complete list of commands.')
