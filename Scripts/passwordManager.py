@@ -2,7 +2,11 @@ import secrets, string, hashlib, csv, os, getpass
 import encrypt
 
 __session = {'userLoggedIn' : 0, 'plainUserName': None, 'safeUserName' : None, 'dataFile' : None, 'hash': None}
-storageDir = os.path.join(os.path.dirname(__file__), "../.user/")
+parentDir = os.path.dirname(__file__)
+storageDir = os.path.join(parentDir, "../.user/")
+if not os.path.exists(storageDir):
+    os.makedirs(storageDir)
+
 userFile = os.path.join(storageDir, "loggedUsers.csv")
 
 def __set_session(userName=None, passHash=None, loggedIn=1):
@@ -19,13 +23,12 @@ def __set_session(userName=None, passHash=None, loggedIn=1):
         __session['dataFile'] = None
         __session['hash'] = None
 
-def logUserProfile(userName, userPassword):
-    __set_session(userName);
-    safeUserPassword = hashlib.blake2b(userPassword.encode(encoding='ascii')).hexdigest()
-    loggedUsers = open(userFile, 'a', newline='')
-    logUsers = csv.writer(loggedUsers, delimiter = ' ',quotechar = '|')
-    logUsers.writerow([__session['safeUserName'], safeUserPassword])
-    loggedUsers.close()
+def logUserProfile(userName, userPassword):   
+    with open(userFile, 'a+', newline='') as loggedUsers:
+        safeUserPassword = hashlib.blake2b(userPassword.encode(encoding='ascii')).hexdigest()
+        logUsers = csv.writer(loggedUsers, delimiter = ' ',quotechar = '|')
+        __set_session(userName, safeUserPassword);
+        logUsers.writerow([__session['safeUserName'], safeUserPassword])
     return 1
 
 def checkUserNameAvail(userName):
@@ -36,7 +39,9 @@ def checkUserNameAvail(userName):
         checkProfiles = csv.reader(loggedUsers, delimiter = ' ', quotechar='|')
         for row in checkProfiles:
             if row[0] == safeUserName:
+                loggedUsers.close()
                 return 0
+        loggedUsers.close()
         return 1
     except FileNotFoundError:
         return 2
@@ -48,13 +53,13 @@ def handleUserAction(returning=1):
         else: 
             prompt = "Create a new password(1), add an existing password to profile(2) or exit(9): "
         
-        userActionMode = int(input(prompt))
-        if userActionMode == 3:
+        userActionMode = input(prompt)
+        if userActionMode == '3':
             displaySavedPasswords()
             return
-        elif userActionMode == 2:
+        elif userActionMode == '2':
             password = input('Enter the password: ')
-        elif userActionMode == 1:
+        elif userActionMode == '1':
             password = createPassword()
             print("Password created!")
             print(password)
@@ -62,10 +67,12 @@ def handleUserAction(returning=1):
             if saveStatus == 'n':
                 print("Password was not saved.")
                 return
-        elif userActionMode == 9:
+        elif userActionMode == "help":
+            userHelp()
+        elif userActionMode == '9':
             return logout()
         else:
-            print("Please pick one of the given options.")
+            print("Please pick one of the given options or enter help.")
             return   
         passkeyword = input('Determine a keyword for the password that will help you recognize it later: ')
         if savePassword(password, passkeyword) == 1:
@@ -87,9 +94,12 @@ def checkUserProfile(inputName, inputPass):
         for creds in checkProfiles:
             if creds[0] == safeName and creds[1] == passHash:
                 __set_session(inputName, passHash)
+                loggedUsers.close()
                 return 1
             elif (creds[0] != safeName and creds[1] == passHash) or (creds[0] == safeName and creds[1] != passHash):
+                loggedUsers.close()
                 return 2
+        loggedUsers.close()    
         return 0               
     except FileNotFoundError:
         return 3
@@ -132,7 +142,7 @@ def createPassword():
         raise InputError(useSym, 'Invalid input')
     return x
 
-def  savePassword(password, passkeyword):
+def savePassword(password, passkeyword):
     try:
         saveFile = open(__session['dataFile'], 'a+', newline='')
     except FileNotFoundError:
@@ -166,8 +176,19 @@ def displaySavedPasswords():
                 x = 2
         if x == 2:
             print(f'\nNo passwords found for {__session["plainUserName"]}.')
+        passwordFile.close()
     except FileNotFoundError:
-        print(f'\nNo passwords found for {__session["plainUserName"]}.')            
+        print(f'\nNo passwords found for {__session["plainUserName"]}.')
+
+def exportPasswords():
+    if __session["userLoggedIn"] == 0:
+        print("You must be logged in to export passwords.")
+        return
+    print(f"""To export your saved passwords, you can save the csv file named {__session['safeUsername']}.csv 
+          in the .user directory\n""")
+    print(f"After moving your passwords, simply clone password-manager again and use the same username and password\n")
+    print(f"or note down your hashKey to decrypt your file using encrypt.decrypt('fileContents', hashKey)\n")
+    print(f"hashkey: {__session['hash']}")          
 
 class Error(Exception):
     pass
@@ -177,9 +198,24 @@ class InputError(Error):
         self.expression = expression
         self.message = message 
 
+def removeCacheFileorDirectory(cache):
+    try:
+        if not os.path.isdir(cache):
+            os.remove(cache)
+        else:
+            files = os.listdir(cache)
+            if len(files) != 0:
+                for file in files:
+                    filePath = os.path.join(cache, file)
+                    removeCacheFileorDirectory(filePath)
+            os.rmdir(cache)
+    except FileNotFoundError:
+        return
+
 def logout():
     print("Logging out ...")
     __set_session(loggedIn=0)
+    removeCacheFileorDirectory(os.path.join(parentDir, "__pycache__"))
     print("Successfully logged out!")
 
 def login():
@@ -202,7 +238,7 @@ def signUp():
     if userNameGood == -1:
         print("Empty usernames are not ideal. Restart.")
     elif userNameGood == 0:
-        print("Looks like you've already been here. Username taken. Try log-in.")
+        print("Looks like you've already been here. Username taken. Try login.")
     elif userNameGood == 1 or userNameGood == 2:
         print('Before you proceed, note the password you set. You can not recover saved passwords without your master password.')
         userPassword = getpass.getpass(prompt='Enter a password: ')    
@@ -222,7 +258,9 @@ def userHelp():
                     'logout' : 'Log out of current profile', 
                     'commands/help' : 'Displays a list of commands.', 
                     'create-password' : 'Create a password. If you are not signed into an account, password wont be saved.',
-                    '--exit/--quit' : 'Exit the program'}
+                    '--exit/--quit' : 'Exit the program',
+                    'export': 'Export passwords saved with your current profile.'}
+
     for c,a in commandActions.items():
         print(f'{c} -> {a}')
 
@@ -234,7 +272,7 @@ print('Welcome to password-manager. Enter --help or --commands for help.')
 
 def inputStream():
     print()
-    userInput = str(input("$ "))
+    userInput = str(input("$ ")).lower()
     if userInput == 'login':
         login()
     elif userInput == 'create-account' or userInput == 'createacc':
@@ -247,8 +285,10 @@ def inputStream():
         unregUserPassword()
     elif userInput == 'exit' or userInput == 'quit' or userInput=='9':
         exit()
+    elif userInput == "export":
+        exportPasswords()
     else:
-        print('Invalid command. Enter --help/--commands to get a complete list of commands.')
+        print('Invalid command. Enter help/commands to get a complete list of commands.')
 
 while True:
     if __session['userLoggedIn'] == 1:
