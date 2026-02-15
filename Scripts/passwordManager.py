@@ -117,7 +117,7 @@ def createPassword():
         except ValueError:
             print("Length is a positive integer > 0. Using 16.")
             codeLen = 16
-    if tries == 3:
+    if tries == 2:
         print('Try again later.')
         return 0
     
